@@ -437,13 +437,38 @@ function showStep(which){
 function showPhotoPreview(src){
   $("viewfinder").innerHTML = '<img src="' + src + '" alt="Invoice photo">';
 }
+function fileExt(name){ var m = /\.([a-z0-9]+)$/i.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
+var GOOD_IMG_EXT = /^(png|jpe?g|webp|gif|bmp)$/;
+/* True if this browser can actually decode the file (what Tesseract relies on). */
+function canDecodeImage(file){
+  return new Promise(function(res){
+    if(file && GOOD_IMG_EXT.test(fileExt(file.name))){ res(true); return; }
+    var url;
+    try { url = URL.createObjectURL(file); } catch(e){ res(false); return; }
+    var done = false;
+    function fin(ok){ if(!done){ done = true; try { URL.revokeObjectURL(url); } catch(e){} res(ok); } }
+    var im = new Image();
+    im.onload = function(){ fin(im.naturalWidth > 0); };
+    im.onerror = function(){ fin(false); };
+    setTimeout(function(){ fin(false); }, 8000);
+    im.src = url;
+  });
+}
+function unsupportedFormatMsg(file){
+  var ext = fileExt(file && file.name);
+  return "Couldn't read this photo" + (ext ? " (." + ext + " isn't supported in this browser)" : "") +
+    " — please use a PNG or JPEG photo instead.";
+}
 function onPhotoFile(file){
   if(!file) return;
   photoIsReal = true;
   clearCaptureNote();
-  var rd = new FileReader();
-  rd.onload = function(){ photoDataUrl = rd.result; showPhotoPreview(rd.result); runOcrPipeline(rd.result); };
-  rd.readAsDataURL(file);
+  canDecodeImage(file).then(function(ok){
+    if(!ok){ captureNote(unsupportedFormatMsg(file)); return; }
+    var rd = new FileReader();
+    rd.onload = function(){ photoDataUrl = rd.result; showPhotoPreview(rd.result); runOcrPipeline(rd.result); };
+    rd.readAsDataURL(file);
+  });
 }
 $("btnSnap").addEventListener("click", function(){ $("fileSnap").click(); });
 $("fileSnap").addEventListener("change", function(){ onPhotoFile(this.files[0]); this.value = ""; });
@@ -702,15 +727,23 @@ $("fileBulk").addEventListener("change", function(){
   var files = Array.prototype.slice.call(this.files || []);
   this.value = "";
   if(!files.length) return;
-  files.forEach(function(f){
-    bulkQueue.push({ file: f, name: f.name, status: "queued", note: Math.round(f.size / 1024) + " KB", entry: null });
+  var skipped = [];
+  var checks = files.map(function(f){
+    return canDecodeImage(f).then(function(ok){
+      if(ok) bulkQueue.push({ file: f, name: f.name, status: "queued", note: Math.round(f.size / 1024) + " KB", entry: null });
+      else { bulkQueue.push({ file: f, name: f.name, status: "failed", note: unsupportedFormatMsg(f), entry: null }); skipped.push(f.name); }
+    });
   });
   clearCaptureNote();
   showStep("bulk");
-  $("bulkLog").textContent = bulkQueue.length + " invoices queued. Start the bulk scan when ready.";
-  window.__bulkResults = null;
-  renderBulkList();
-  window.scrollTo(0, 0);
+  Promise.all(checks).then(function(){
+    $("bulkLog").textContent = bulkQueue.length + " invoices queued." +
+      (skipped.length ? " " + skipped.length + " skipped (unsupported format)." : "") +
+      " Start the bulk scan when ready.";
+    window.__bulkResults = null;
+    renderBulkList();
+    window.scrollTo(0, 0);
+  });
 });
 $("btnBulkStart").addEventListener("click", function(){
   ensureOcr(function(ok){
