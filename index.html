@@ -213,7 +213,8 @@
     </div>
     <div id="bulkReview" hidden style="margin-top:14px">
       <h3 class="set-h">Review each invoice</h3>
-      <p style="font-size:13px;color:var(--muted);margin:0 0 8px">Clean ones can be skipped — focus on the flagged ones.</p>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 8px">Clean ones can be skipped — focus on the flagged ones. A failed invoice never blocks the rest.</p>
+      <div class="btnrow" style="margin:0 0 8px"><button class="btn" id="btnSkipClean" hidden>Skip all clean ✓</button></div>
       <div id="bulkReviewList"></div>
       <div class="btnrow" style="margin-top:12px">
         <button class="btn primary big" id="btnBulkToExport" disabled>Continue to export</button>
@@ -1365,7 +1366,8 @@ function entryIssues(e){
 function renderBulkReview(){
   var wrap = $("bulkReview"), list = $("bulkReviewList");
   var doneQs = bulkQueue.filter(function(q){ return q.status === "done" && q.entry; });
-  if(!doneQs.length){ wrap.hidden = true; return; }
+  var failedQs = bulkQueue.filter(function(q){ return q.status === "failed"; });
+  if(!doneQs.length && !failedQs.length){ wrap.hidden = true; return; }
   wrap.hidden = false;
   list.innerHTML = doneQs.map(function(q){
     var probs = entryIssues(q.entry);
@@ -1382,11 +1384,21 @@ function renderBulkReview(){
     }
     return '<div class="bulk-rev"><div class="row1"><span class="nm">' + esc(q.name) + '</span>' + pill + '</div>' +
       '<div class="sub">' + esc(sub) + '</div>' + (acts ? '<div class="acts">' + acts + '</div>' : '') + '</div>';
-  }).join("") + bulkQueue.filter(function(q){ return q.status === "failed"; }).map(function(q){
+  }).join("") + failedQs.map(function(q){
     return '<div class="bulk-rev"><div class="row1"><span class="nm">' + esc(q.name) + '</span><span class="pill warn">failed</span></div>' +
-      '<div class="sub">' + esc(q.note || "couldn't read") + ' — not included in export.</div></div>';
+      '<div class="sub">' + esc(q.note || "couldn't read") + ' — not included in export.</div>' +
+      '<div class="acts"><button class="btn" data-bact="retry" data-qid="' + q.bulkId + '">↺ Retry</button>' +
+      '<button class="btn" data-bact="remove" data-qid="' + q.bulkId + '">Remove</button></div></div>';
   }).join("");
-  $("btnBulkToExport").disabled = !doneQs.every(function(q){ return q.reviewed; });
+  /* one failure never halts the process: failed items are excluded from the
+     gate, and everything fine can continue once reviewed */
+  var cleanCount = doneQs.filter(function(q){ return !q.reviewed && !entryIssues(q.entry).length; }).length;
+  var sc = $("btnSkipClean");
+  if(sc){ sc.hidden = cleanCount < 1; sc.textContent = "Skip all clean ✓ (" + cleanCount + ")"; }
+  var ready = doneQs.filter(function(q){ return q.reviewed; }).length;
+  var cte = $("btnBulkToExport");
+  cte.disabled = !(doneQs.length && ready === doneQs.length);
+  cte.textContent = "Continue to export" + (ready ? " (" + ready + " ready" + (failedQs.length ? ", " + failedQs.length + " failed" : "") + ")" : "");
 }
 
 /* ================= wizard wiring ================= */
@@ -1420,6 +1432,12 @@ function wireWizard(){
   var toStart = function(){ resetWizard(); showStep("mode"); };
   $("btnExpStart").addEventListener("click", toStart);
   $("btnDoneStart").addEventListener("click", toStart);
+  $("btnSkipClean").addEventListener("click", function(){
+    bulkQueue.forEach(function(q){
+      if(q.status === "done" && q.entry && !q.reviewed && !entryIssues(q.entry).length) q.reviewed = true;
+    });
+    renderBulkReview();
+  });
   $("btnBulkToExport").addEventListener("click", function(){
     exportEntries = bulkQueue.filter(function(q){ return q.status === "done" && q.entry && q.reviewed; }).map(function(q){ return q.entry; });
     if(!exportEntries.length) return;
@@ -1431,8 +1449,20 @@ function wireWizard(){
     if(!b) return;
     var q = null;
     bulkQueue.forEach(function(x){ if(x.bulkId === b.getAttribute("data-qid")) q = x; });
-    if(!q || !q.entry) return;
-    if(b.getAttribute("data-bact") === "skip"){ q.reviewed = true; renderBulkReview(); return; }
+    if(!q) return;
+    var act = b.getAttribute("data-bact");
+    if(act === "remove"){
+      bulkQueue = bulkQueue.filter(function(x){ return x !== q; });
+      renderBulkList(); renderBulkReview(); return;
+    }
+    if(act === "retry"){
+      q.status = "queued"; q.note = ""; q.reviewed = false; q.entry = null;
+      renderBulkList(); renderBulkReview();
+      var st = $("btnBulkStart"); if(st && !st.disabled) st.click();
+      return;
+    }
+    if(!q.entry) return;
+    if(act === "skip"){ q.reviewed = true; renderBulkReview(); return; }
     lines = q.entry.lines.map(function(l){ return { desc: l.desc, qty: l.qty, cost: l.cost }; });
     meta = { vendor: q.entry.meta.vendor, inv: q.entry.meta.inv, date: q.entry.meta.date };
     photoDataUrl = null; photoIsReal = false;
