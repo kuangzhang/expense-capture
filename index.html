@@ -81,17 +81,66 @@
   .bulk-item:last-child{border-bottom:0}
   .bulk-meta strong{display:block;font-size:13px;word-break:break-all}
   .bulk-meta span{color:var(--muted);font-size:12px}
+
+/* ---- guided wizard (v13) ---- */
+.splash-art{font-size:52px;text-align:center;margin:6px 0 2px}
+.splash-title{margin:0 0 6px;font-size:22px;text-align:center}
+.splash-sub{font-size:14px;color:var(--muted);margin:0 0 10px;line-height:1.5}
+.splash-list{list-style:none;margin:0 0 12px;padding:0;font-size:14px}
+.splash-list li{padding:7px 0;border-top:1px solid var(--line)}
+.splash-list li strong{color:var(--accent);margin-right:6px}
+.splash-hide{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--muted);margin:6px 0;cursor:pointer}
+.splash-hide input{width:18px;height:18px;accent-color:var(--accent)}
+.val-thumb{width:100%;max-height:220px;object-fit:contain;background:var(--surface-2);border:1px solid var(--line);border-radius:10px}
+.val-check{display:flex;gap:8px;align-items:baseline;font-size:14px;padding:6px 0;border-top:1px solid var(--line)}
+.val-check .st{font-weight:700;width:22px;text-align:center;flex:none}
+.val-check .ok{color:var(--accent)} .val-check .warn{color:#a86a12} .val-check .bad{color:var(--danger)}
+.val-check small{color:var(--muted);margin-left:auto;text-align:right}
+.val-verdict{font-size:14px;font-weight:600;padding:10px 12px;border-radius:10px;margin:10px 0 0}
+.val-verdict.good{background:var(--accent-soft);color:var(--accent)}
+.val-verdict.warn{background:#faf3e3;color:#8a5c0e}
+.val-verdict.bad{background:#fbe9e6;color:var(--danger)}
+.rev-hint{font-size:13px;color:var(--danger);background:#fbe9e6;border-radius:10px;padding:8px 10px;margin:0 0 10px}
+.bulk-rev{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
+.bulk-rev .row1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bulk-rev .nm{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bulk-rev .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.bulk-rev .acts{display:flex;gap:8px;margin-top:8px}
+.pill.good{background:var(--accent-soft);color:var(--accent)}
+.pill.warn{background:#faf3e3;color:#8a5c0e}
+
 </style>
 </head>
 <body>
 <header>
-  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v12 self-contained</b></small></h1>
+  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v13 wizard</b></small></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="pill info" id="ocrBadge">OCR</span>
     <button class="btn" id="btnSettings" aria-label="Settings" style="padding:8px 12px">⚙</button>
   </div>
 </header>
 <main id="mainView">
+  <!-- splash -->
+  <section class="card" id="wzSplash" hidden>
+    <div class="splash-art">🧾</div>
+    <h2 class="splash-title">Expense Capture</h2>
+    <p class="splash-sub">Snap a photo of any invoice or receipt. The app reads every line item <strong>on this phone</strong> — nothing is ever uploaded — and turns it into a clean CSV for your books.</p>
+    <ul class="splash-list">
+      <li><strong>1.</strong> Snap or upload the invoice</li>
+      <li><strong>2.</strong> We check the photo is readable</li>
+      <li><strong>3.</strong> Review &amp; fix the line items</li>
+      <li><strong>4.</strong> Export CSV in your accounting app's format</li>
+    </ul>
+    <label class="splash-hide"><input type="checkbox" id="wzSplashHide"> Never show this again</label>
+    <div class="btnrow" style="margin-top:12px"><button class="btn primary big" id="wzSplashGo">Get started</button></div>
+  </section>
+  <!-- mode select -->
+  <section class="card" id="wzMode" hidden>
+    <h2 style="margin:0 0 4px;font-size:17px">What are you scanning?</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 12px">Capture, a quick quality check, review, then export — one step at a time.</p>
+    <div class="btnrow"><button class="btn primary big" id="btnModeSingle">🧾 Single invoice</button></div>
+    <div class="btnrow" style="margin-top:10px"><button class="btn primary big" id="btnModeBulk">📚 Bulk scan — many invoices</button></div>
+  </section>
   <section class="card" id="settingsCard" hidden>
     <h2 style="margin:0 0 4px;font-size:16px">Settings</h2>
     <h3 class="set-h">Photo storage</h3>
@@ -119,9 +168,9 @@
       <input type="file" id="fileUpload" accept="image/*" class="fileghost">
       <button class="btn" id="btnSample">Try sample</button>
     </div>
-    <div class="btnrow" style="margin-top:10px">
-      <button class="btn primary big" id="btnBulk">📚 Bulk scan — many invoices</button>
-      <input type="file" id="fileBulk" accept="image/*" multiple class="fileghost">
+    <div id="capProgWrap" hidden style="margin-top:12px">
+      <div class="progress"><i id="capProgFill"></i></div>
+      <p id="capProgMsg" style="font-size:13px;color:var(--muted);margin:6px 0 0">Loading photo…</p>
     </div>
   </section>
 
@@ -131,19 +180,44 @@
     <p id="extractLog"></p>
   </section>
 
+  <!-- validation -->
+  <section class="card" id="wzValidate" hidden>
+    <h2 style="margin:0 0 8px;font-size:16px">Check the photo</h2>
+    <img id="valThumb" alt="Invoice photo preview" class="val-thumb">
+    <div id="valChecks" style="margin:10px 0"></div>
+    <p id="valVerdict" class="val-verdict"></p>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn primary big" id="btnValNext">Next</button>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn" id="btnValRetake">↺ Retake photo</button>
+    </div>
+  </section>
+
   <!-- bulk -->
   <section class="card" id="stepBulk" hidden>
     <h2 style="margin:0 0 8px;font-size:16px">Bulk scan <span id="bulkCount" style="font-weight:400;color:var(--muted);font-size:12px"></span></h2>
     <div class="progress"><i id="bulkProgFill"></i></div>
     <p id="bulkLog" style="font-size:13px;color:var(--muted);min-height:20px">Pick invoice photos to queue them up.</p>
+    <div class="btnrow" style="margin:10px 0">
+      <button class="btn primary" id="btnBulkPick">Choose invoice photos</button>
+      <input type="file" id="fileBulk" accept="image/*" multiple class="fileghost">
+    </div>
     <div id="bulkList"></div>
     <div class="btnrow" style="margin-top:12px">
       <button class="btn primary big" id="btnBulkStart" disabled>Start bulk scan</button>
     </div>
     <div class="btnrow" style="margin-top:10px">
-      <button class="btn" id="btnBulkCSV" disabled>Download combined CSV</button>
       <button class="btn" id="btnBulkCancel" disabled>Cancel</button>
-      <button class="btn" id="btnBulkClose">Back</button>
+      <button class="btn" id="btnBulkBack">Back</button>
+    </div>
+    <div id="bulkReview" hidden style="margin-top:14px">
+      <h3 class="set-h">Review each invoice</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 8px">Clean ones can be skipped — focus on the flagged ones.</p>
+      <div id="bulkReviewList"></div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn primary big" id="btnBulkToExport" disabled>Continue to export</button>
+      </div>
     </div>
   </section>
 
@@ -176,15 +250,49 @@
     </table></div>
     <div class="btnrow" style="margin-top:10px"><button class="btn" id="btnAddRow">+ Add row</button></div>
     <div class="totals"><span><span id="totLines">0</span> lines</span><span>Total <strong id="totVal">$0.00</strong></span></div>
+    <p id="revHint" class="rev-hint" hidden></p>
     <div class="btnrow">
-      <button class="btn primary big" id="btnCSV">Download CSV</button>
+      <button class="btn primary big" id="btnRevNext">Next</button>
     </div>
     <div class="btnrow" style="margin-top:10px">
       <button class="btn" id="btnSave">Save to history</button>
-      <button class="btn primary" id="btnSaveNext">Save &amp; scan next</button>
-      <button class="btn" id="btnRescan">Scan another</button>
+      <button class="btn" id="btnRevBack">Back</button>
     </div>
     <div class="drive-note" id="saveNote" hidden></div>
+  </section>
+
+  <!-- export -->
+  <section class="card" id="wzExport" hidden>
+    <h2 style="margin:0 0 4px;font-size:16px">Export CSV</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 10px">Pick the format your accounting app imports. Nothing selected? The default opens anywhere.</p>
+    <div id="expFmtList">
+      <label class="radio"><input type="radio" name="expFmt" value="default" checked>
+        <span><strong>Default CSV</strong><br><span class="radio-sub">Invoice #, vendor, date, line items — opens in any spreadsheet.</span></span></label>
+      <label class="radio"><input type="radio" name="expFmt" value="xero">
+        <span><strong>Xero — bills</strong><br><span class="radio-sub">Imports as bills through Xero's CSV import.</span></span></label>
+      <label class="radio"><input type="radio" name="expFmt" value="qbo">
+        <span><strong>QuickBooks Online — bills</strong><br><span class="radio-sub">Imports as bills through QuickBooks import.</span></span></label>
+      <label class="radio"><input type="radio" name="expFmt" value="freshbooks">
+        <span><strong>FreshBooks — expenses</strong><br><span class="radio-sub">Imports as expenses through FreshBooks import.</span></span></label>
+    </div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="btn primary big" id="btnExpEmail">✉️ Email CSV</button>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn primary big" id="btnExpSave">💾 Save CSV to this phone</button>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn" id="btnExpBack">Back</button>
+      <button class="btn" id="btnExpStart">Back to start</button>
+    </div>
+  </section>
+
+  <!-- done -->
+  <section class="card" id="wzDone" hidden>
+    <div class="splash-art">✅</div>
+    <h2 class="splash-title">All done</h2>
+    <p id="doneMsg" class="splash-sub" style="text-align:center"></p>
+    <div class="btnrow" style="margin-top:12px"><button class="btn primary big" id="btnDoneStart">Back to start</button></div>
   </section>
 
   <!-- history -->
@@ -480,6 +588,12 @@ function showStep(which){
   $("stepReview").hidden = which !== "review";
   $("stepBulk").hidden = which !== "bulk";
   $("stepImport").hidden = which !== "import";
+  $("wzSplash").hidden = which !== "splash";
+  $("wzMode").hidden = which !== "mode";
+  $("wzValidate").hidden = which !== "validate";
+  $("wzExport").hidden = which !== "export";
+  $("wzDone").hidden = which !== "done";
+  if(which === "mode" || which === "splash"){ try{ window.scrollTo(0, 0); }catch(e){} }
 }
 function showPhotoPreview(src){
   $("viewfinder").innerHTML = '<img src="' + src + '" alt="Invoice photo">';
@@ -541,10 +655,10 @@ function onPhotoFile(file){
   });
 }
 $("btnSnap").addEventListener("click", function(){ $("fileSnap").click(); });
-$("fileSnap").addEventListener("change", function(){ onPhotoFile(this.files[0]); this.value = ""; });
+$("fileSnap").addEventListener("change", function(){ wizardPhotoFile(this.files[0]); this.value = ""; });
 $("btnUpload").addEventListener("click", function(){ $("fileUpload").click(); });
-$("fileUpload").addEventListener("change", function(){ onPhotoFile(this.files[0]); this.value = ""; });
-$("btnSample").addEventListener("click", function(){ photoDataUrl = null; photoIsReal = false; runDemoExtract(); });
+$("fileUpload").addEventListener("change", function(){ wizardPhotoFile(this.files[0]); this.value = ""; });
+$("btnSample").addEventListener("click", function(){ photoDataUrl = null; photoIsReal = false; reviewCanValidate = false; runDemoExtract(); });
 
 /* ================= review (everything editable) ================= */
 function renderReview(){
@@ -558,6 +672,8 @@ function renderReview(){
       "<td><button class=\"row-del\" data-del=\"" + i + "\" aria-label=\"Delete row\">×</button></td></tr>";
   }).join("");
   updateTotals();
+  reviewSaved = false; savedEntryId = null;
+  refreshRevNext();
 }
 function updateTotals(){
   var t = 0;
@@ -612,9 +728,26 @@ function downloadCSV(entry){
 function currentEntry(){
   return { id: "scan-" + Date.now().toString(36), meta: { vendor: $("mVendor").value.trim(), inv: $("mInv").value.trim(), date: $("mDate").value || todayISO() }, lines: lines.map(function(l){ return { desc:l.desc, qty:l.qty, cost:l.cost }; }) };
 }
-$("btnCSV").addEventListener("click", function(){
-  if(!lines.length) return;
-  downloadCSV(currentEntry());
+$("btnRevNext").addEventListener("click", function(){
+  if(validateReview().length){ refreshRevNext(); return; }
+  if(savedEntryId){
+    var h0 = loadHistory().filter(function(e){ return e.id !== savedEntryId; });
+    saveHistory(h0); savedEntryId = null;
+  }
+  var entry = currentEntry();
+  var saved = doSave(false);
+  if(saved){ savedEntryId = saved.id; reviewSaved = true; }
+  if(reviewReturn === "bulk" && reviewBulkQ){
+    reviewBulkQ.entry = entry; reviewBulkQ.reviewed = true;
+    reviewReturn = null; reviewBulkQ = null;
+    showStep("bulk"); renderBulkReview(); return;
+  }
+  exportEntries = [entry]; exportMode = "single";
+  showStep("export");
+});
+$("btnRevBack").addEventListener("click", function(){
+  if(reviewReturn === "bulk"){ reviewReturn = null; reviewBulkQ = null; showStep("bulk"); }
+  else showStep(reviewCanValidate ? "validate" : "capture");
 });
 
 /* ================= history (tax records) ================= */
@@ -663,10 +796,9 @@ function doSave(scanNext){
     }
   } else { note.hidden = true; }
   if(scanNext) resetCapture();
+  return entry;
 }
-$("btnSave").addEventListener("click", function(){ doSave(false); });
-$("btnSaveNext").addEventListener("click", function(){ doSave(true); });
-$("btnRescan").addEventListener("click", resetCapture);
+$("btnSave").addEventListener("click", function(){ var s = doSave(false); if(s){ savedEntryId = s.id; reviewSaved = true; } });
 function buildCSVAll(entries){
   var rows = [["Invoice #","Vendor","Date","Description","Qty","Unit cost","Line total"]];
   entries.forEach(function(e){
@@ -719,7 +851,6 @@ function renderBulkList(){
   $("bulkProgFill").style.width = (bulkQueue.length ? Math.round(done / bulkQueue.length * 100) : 0) + "%";
   $("btnBulkStart").disabled = bulkRunning || !bulkQueue.some(function(q){ return q.status === "queued"; });
   $("btnBulkCancel").disabled = !bulkRunning;
-  $("btnBulkCSV").disabled = !bulkQueue.some(function(q){ return q.status === "done"; });
 }
 function readFileAsDataURL(file){
   return new Promise(function(res, rej){
@@ -792,9 +923,9 @@ function bulkRun(){
       return { name: q.name, status: q.status, note: q.note, lines: q.entry ? q.entry.lines : [] };
     });
     renderBulkList();
+    renderBulkReview();
   });
 }
-$("btnBulk").addEventListener("click", function(){ $("fileBulk").click(); });
 $("fileBulk").addEventListener("change", function(){
   var files = Array.prototype.slice.call(this.files || []);
   this.value = "";
@@ -802,8 +933,8 @@ $("fileBulk").addEventListener("change", function(){
   var skipped = [];
   var checks = files.map(function(f){
     return canDecodeImage(f).then(function(ok){
-      if(ok) bulkQueue.push({ file: f, name: f.name, status: "queued", note: Math.round(f.size / 1024) + " KB", entry: null });
-      else { bulkQueue.push({ file: f, name: f.name, status: "failed", note: unsupportedFormatMsg(f), entry: null }); skipped.push(f.name); }
+      if(ok) bulkQueue.push({ file: f, name: f.name, status: "queued", note: Math.round(f.size / 1024) + " KB", entry: null, bulkId: "bq" + (++bulkSeq), reviewed: false });
+      else { bulkQueue.push({ file: f, name: f.name, status: "failed", note: unsupportedFormatMsg(f), entry: null, bulkId: "bq" + (++bulkSeq), reviewed: false }); skipped.push(f.name); }
     });
   });
   clearCaptureNote();
@@ -827,17 +958,6 @@ $("btnBulkStart").addEventListener("click", function(){
 $("btnBulkCancel").addEventListener("click", function(){
   bulkCancel = true;
   $("bulkLog").textContent = "Cancelling after the current invoice…";
-});
-$("btnBulkClose").addEventListener("click", function(){ showStep("capture"); });
-$("btnBulkCSV").addEventListener("click", function(){
-  var entries = bulkQueue.filter(function(q){ return q.status === "done" && q.entry; }).map(function(q){ return q.entry; });
-  if(!entries.length) return;
-  var blob = new Blob([buildCSVAll(entries)], { type: "text/csv;charset=utf-8" });
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "invoices-bulk-" + todayISO() + ".csv";
-  document.body.appendChild(a); a.click();
-  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 });
 
 /* ================= CSV import wizard (Meta-style column mapping) ================= */
@@ -956,11 +1076,22 @@ $("fileCsvImport").addEventListener("change", function(){
   rd.readAsText(f);
 });
 $("btnImpDo").addEventListener("click", doCsvImport);
-$("btnImpBack").addEventListener("click", function(){ showStep("capture"); });
+$("btnImpBack").addEventListener("click", function(){ showStep("mode"); });
 
 /* ================= settings: photo storage (Google Drive vs local) ================= */
 var DRIVE_CLIENT_ID = ""; /* TODO: merchant's Google Cloud OAuth client ID */
 var settings = { storage:"local", driveFolder:"Expense Capture" };
+/* ---- guided wizard (v13) state ---- */
+var singlePhotoRaw = null;   /* original data URL, pre-normalize */
+var singlePhoto = null;      /* normalized data URL for OCR */
+var exportEntries = [];      /* entries queued for the export screen */
+var exportMode = "single";   /* single | bulk */
+var reviewReturn = null;     /* null | "bulk" — where review Next goes */
+var reviewBulkQ = null;      /* bulk queue item being reviewed */
+var reviewSaved = false;     /* entry already saved to history this review */
+var savedEntryId = null;     /* history id of the saved entry (replace on re-save) */
+var reviewCanValidate = false; /* review reached via photo validation (Back target) */
+var bulkSeq = 0;
 function loadSettings(){
   try {
     var s = JSON.parse(localStorage.getItem("expense_capture_settings") || "null");
@@ -1020,13 +1151,312 @@ function driveUploadPhoto(dataUrl, entry){
   });
 }
 
+/* ================= guided wizard (v13) ================= */
+
+/* single capture: real upload-progress bar, then photo-quality validation */
+function wizardPhotoFile(file){
+  if(!file) return;
+  photoIsReal = true;
+  clearCaptureNote();
+  canDecodeImage(file).then(function(ok){
+    if(!ok){ captureNote(unsupportedFormatMsg(file)); return; }
+    var rd = new FileReader();
+    var wrap = $("capProgWrap"), fill = $("capProgFill"), msg = $("capProgMsg");
+    wrap.hidden = false; fill.style.width = "0%"; msg.textContent = "Loading photo…";
+    rd.onprogress = function(e){ if(e.lengthComputable){ fill.style.width = Math.round(e.loaded / e.total * 70) + "%"; } };
+    rd.onload = function(){
+      fill.style.width = "85%"; msg.textContent = "Checking photo quality…";
+      photoDataUrl = rd.result;
+      validateImage(rd.result).then(function(v){
+        wrap.hidden = true;
+        singlePhotoRaw = rd.result;
+        showValidation(v, rd.result);
+      });
+    };
+    rd.onerror = function(){ wrap.hidden = true; captureNote("Couldn't read that file — try another photo."); };
+    rd.readAsDataURL(file);
+  });
+}
+
+/* image-sufficiency checks: resolution, sharpness, file size */
+function laplacianVariance(img){
+  try{
+    var W = 240, H = Math.max(1, Math.round(W * img.naturalHeight / img.naturalWidth));
+    var cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    var cx = cv.getContext("2d"); cx.drawImage(img, 0, 0, W, H);
+    var d = cx.getImageData(0, 0, W, H).data, n = W * H, g = new Float32Array(n), i;
+    for(i = 0; i < n; i++){ g[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]; }
+    var laps = [];
+    for(var y = 1; y < H - 1; y++) for(var x = 1; x < W - 1; x++){
+      laps.push(-4 * g[y*W+x] + g[(y-1)*W+x] + g[(y+1)*W+x] + g[y*W+x-1] + g[y*W+x+1]);
+    }
+    if(!laps.length) return 9999;
+    var m = 0;
+    for(i = 0; i < laps.length; i++) m += laps[i];
+    m /= laps.length;
+    var va = 0;
+    for(i = 0; i < laps.length; i++){ var dd = laps[i] - m; va += dd * dd; }
+    return va / laps.length;
+  }catch(e){ return 9999; }
+}
+
+function validateImage(dataUrl){
+  return new Promise(function(res){
+    var img = new Image();
+    img.onload = function(){
+      var w = img.naturalWidth, h = img.naturalHeight, longEdge = Math.max(w, h);
+      var kb = Math.round(dataUrl.length * 0.75 / 1024);
+      var sharp = laplacianVariance(img);
+      var checks = [];
+      checks.push({
+        label: "Resolution",
+        state: longEdge >= 1200 ? "ok" : (longEdge >= 400 ? "warn" : "bad"),
+        msg: w + "×" + h + " px" + (longEdge < 1200 ? " — small text may misread" : "")
+      });
+      checks.push({
+        label: "Sharpness",
+        state: sharp >= 60 ? "ok" : (sharp >= 25 ? "warn" : "bad"),
+        msg: sharp < 25 ? "looks blurry — hold steady and retake" : (sharp < 60 ? "a little soft" : "crisp")
+      });
+      checks.push({
+        label: "File size",
+        state: kb >= 40 ? "ok" : "warn",
+        msg: kb + " KB" + (kb < 40 ? " — heavily compressed" : "")
+      });
+      var bad = checks.some(function(c){ return c.state === "bad"; });
+      var warn = checks.some(function(c){ return c.state === "warn"; });
+      res({ checks: checks, verdict: bad ? "bad" : (warn ? "warn" : "good") });
+    };
+    img.onerror = function(){ res({ checks: [], verdict: "bad", loadError: true }); };
+    img.src = dataUrl;
+  });
+}
+
+function showValidation(v, dataUrl){
+  $("valThumb").src = dataUrl;
+  var icons = { ok: "✓", warn: "!", bad: "✗" };
+  $("valChecks").innerHTML = v.checks.map(function(c){
+    return '<div class="val-check"><span class="st ' + c.state + '">' + icons[c.state] + '</span><span>' +
+      esc(c.label) + '</span><small>' + esc(c.msg) + '</small></div>';
+  }).join("");
+  var vd = $("valVerdict"), nx = $("btnValNext");
+  vd.className = "val-verdict " + v.verdict;
+  if(v.verdict === "good"){ vd.textContent = "Looks good — this photo should read cleanly."; nx.disabled = false; }
+  else if(v.verdict === "warn"){ vd.textContent = "Usable, but not perfect — continue or retake for a cleaner read."; nx.disabled = false; }
+  else { vd.textContent = v.loadError ? "Couldn't read that photo — try another one." : "This photo probably won't read well — please retake it."; nx.disabled = true; }
+  reviewCanValidate = true;
+  showStep("validate");
+}
+
+/* review: Next only when every field is filled */
+function validateReview(){
+  var problems = [];
+  if(!$("mVendor").value.trim()) problems.push("vendor name");
+  if(!$("mDate").value) problems.push("date");
+  if(!lines.length) problems.push("at least one line item");
+  lines.forEach(function(l, i){
+    if(!l.desc || !String(l.desc).trim()) problems.push("line " + (i + 1) + " description");
+    else if(!(l.qty > 0)) problems.push("line " + (i + 1) + " quantity");
+    else if(!(l.cost >= 0) || !isFinite(l.cost)) problems.push("line " + (i + 1) + " unit cost");
+  });
+  return problems;
+}
+function refreshRevNext(){
+  var problems = validateReview();
+  var hint = $("revHint"), nx = $("btnRevNext");
+  if(!hint || !nx) return;
+  if(!problems.length){ hint.hidden = true; nx.disabled = false; }
+  else{
+    hint.hidden = false;
+    hint.textContent = "Fill in before continuing: " + problems.slice(0, 4).join(", ") + (problems.length > 4 ? ", …" : "");
+    nx.disabled = true;
+  }
+}
+
+/* export formats */
+function selectedExportFmt(){
+  var r = document.querySelector('input[name="expFmt"]:checked');
+  return r ? r.value : "default";
+}
+function fmtLabel(f){ return { default: "Default", xero: "Xero", qbo: "QuickBooks", freshbooks: "FreshBooks" }[f] || "Default"; }
+function isoToDMY(iso){ var p = String(iso || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : iso; }
+function isoToMDY(iso){ var p = String(iso || "").split("-"); return p.length === 3 ? p[1] + "/" + p[2] + "/" + p[0] : iso; }
+function buildCSVFormat(entries, fmt){
+  var head, rows = [];
+  if(fmt === "xero"){
+    head = ["ContactName","InvoiceNumber","InvoiceDate","DueDate","Description","Quantity","UnitAmount","AccountCode","TaxType","Currency"];
+    entries.forEach(function(e){ e.lines.forEach(function(l){
+      rows.push([e.meta.vendor, e.meta.inv, isoToDMY(e.meta.date), "", l.desc, l.qty, l.cost.toFixed(2), "", "", "USD"]);
+    }); });
+  }else if(fmt === "qbo"){
+    head = ["Bill no.","Supplier","Bill Date","Due Date","Description","Account","Line Amount","Line Tax Code"];
+    entries.forEach(function(e){ e.lines.forEach(function(l){
+      rows.push([e.meta.inv, e.meta.vendor, isoToMDY(e.meta.date), "", l.desc, "", (l.qty * l.cost).toFixed(2), ""]);
+    }); });
+  }else if(fmt === "freshbooks"){
+    head = ["Vendor","Date","Description","Category","Amount"];
+    entries.forEach(function(e){ e.lines.forEach(function(l){
+      rows.push([e.meta.vendor, e.meta.date, l.desc, "", (l.qty * l.cost).toFixed(2)]);
+    }); });
+  }else{
+    head = ["Invoice #","Vendor","Date","Description","Qty","Unit cost","Line total"];
+    entries.forEach(function(e){ e.lines.forEach(function(l){
+      rows.push([e.meta.inv, e.meta.vendor, e.meta.date, l.desc, l.qty, l.cost.toFixed(2), (l.qty * l.cost).toFixed(2)]);
+    }); });
+  }
+  return [head].concat(rows).map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
+}
+function exportFilename(fmt){
+  var tag = fmt === "default" ? "" : "-" + fmt;
+  if(exportMode === "bulk") return "invoices-combined" + tag + ".csv";
+  var inv = (exportEntries[0] && exportEntries[0].meta.inv) || "invoice";
+  return "invoice-" + String(inv).replace(/[^a-z0-9-]+/gi, "-") + tag + ".csv";
+}
+function downloadCSVText(csv, name){
+  var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+}
+function emailCSVFormat(){
+  var fmt = selectedExportFmt();
+  var csv = buildCSVFormat(exportEntries, fmt);
+  var name = exportFilename(fmt);
+  var file = null;
+  try{ file = new File([csv], name, { type: "text/csv" }); }catch(e){}
+  var finish = function(how){
+    $("doneMsg").textContent = "CSV ready in " + fmtLabel(fmt) + " format" + (how ? " — " + how + "." : ".");
+    showStep("done");
+  };
+  if(file && navigator.canShare && navigator.canShare({ files: [file] })){
+    navigator.share({ files: [file], title: "Invoice CSV" }).then(function(){ finish("shared"); }, function(){ finish(); });
+  }else{
+    downloadCSVText(csv, name);
+    window.location.href = "mailto:?subject=" + encodeURIComponent("Invoice CSV — " + name) +
+      "&body=" + encodeURIComponent("Your invoice CSV (" + name + ") just downloaded — attach it to this email.");
+    finish("email opened");
+  }
+}
+
+function resetWizard(){
+  lines = []; meta = { vendor: "", inv: "", date: todayISO() };
+  photoDataUrl = null; photoIsReal = false;
+  singlePhotoRaw = null; singlePhoto = null;
+  exportEntries = []; exportMode = "single";
+  reviewReturn = null; reviewBulkQ = null; reviewSaved = false; savedEntryId = null;
+  reviewCanValidate = false;
+  $("viewfinder").innerHTML = '<div class="hint">Align the invoice inside the frame,<br>then capture.</div>';
+  $("capProgWrap").hidden = true;
+  $("saveNote").hidden = true;
+}
+
+/* bulk: per-invoice review, clean ones skippable */
+function entryIssues(e){
+  var p = [];
+  if(!e.meta.vendor) p.push("no vendor");
+  if(!e.lines.length) p.push("no lines");
+  e.lines.forEach(function(l, i){
+    if(!l.desc || !String(l.desc).trim()) p.push("line " + (i + 1) + " needs a description");
+    else if(!(l.qty > 0)) p.push("line " + (i + 1) + " needs a quantity");
+  });
+  return p;
+}
+function renderBulkReview(){
+  var wrap = $("bulkReview"), list = $("bulkReviewList");
+  var doneQs = bulkQueue.filter(function(q){ return q.status === "done" && q.entry; });
+  if(!doneQs.length){ wrap.hidden = true; return; }
+  wrap.hidden = false;
+  list.innerHTML = doneQs.map(function(q){
+    var probs = entryIssues(q.entry);
+    var pill = q.reviewed
+      ? '<span class="pill good">✓ reviewed</span>'
+      : (probs.length ? '<span class="pill warn">⚠ needs review</span>' : '<span class="pill good">✓ looks good</span>');
+    var sub = q.entry.lines.length + " lines · " + (q.entry.meta.vendor || "no vendor found") +
+      (probs.length && !q.reviewed ? " · " + probs[0] : "");
+    var acts = "";
+    if(!q.reviewed){
+      if(probs.length) acts = '<button class="btn" data-bact="review" data-qid="' + q.bulkId + '">Review</button>';
+      else acts = '<button class="btn" data-bact="skip" data-qid="' + q.bulkId + '">Skip ✓</button>' +
+                  '<button class="btn" data-bact="review" data-qid="' + q.bulkId + '">Review</button>';
+    }
+    return '<div class="bulk-rev"><div class="row1"><span class="nm">' + esc(q.name) + '</span>' + pill + '</div>' +
+      '<div class="sub">' + esc(sub) + '</div>' + (acts ? '<div class="acts">' + acts + '</div>' : '') + '</div>';
+  }).join("") + bulkQueue.filter(function(q){ return q.status === "failed"; }).map(function(q){
+    return '<div class="bulk-rev"><div class="row1"><span class="nm">' + esc(q.name) + '</span><span class="pill warn">failed</span></div>' +
+      '<div class="sub">' + esc(q.note || "couldn't read") + ' — not included in export.</div></div>';
+  }).join("");
+  $("btnBulkToExport").disabled = !doneQs.every(function(q){ return q.reviewed; });
+}
+
+/* ================= wizard wiring ================= */
+function wireWizard(){
+  $("wzSplashGo").addEventListener("click", function(){
+    if($("wzSplashHide").checked){ try{ localStorage.setItem("ec_splash_hide", "1"); }catch(e){} }
+    showStep("mode");
+  });
+  $("btnModeSingle").addEventListener("click", function(){ resetWizard(); showStep("capture"); });
+  $("btnModeBulk").addEventListener("click", function(){ showStep("bulk"); });
+  $("btnBulkPick").addEventListener("click", function(){ $("fileBulk").click(); });
+  $("btnBulkBack").addEventListener("click", function(){ showStep("mode"); });
+  $("btnValRetake").addEventListener("click", function(){ showStep("capture"); });
+  $("btnValNext").addEventListener("click", function(){
+    if(!singlePhotoRaw) return;
+    normalizeForOcr(singlePhotoRaw, function(n){ singlePhoto = n; runOcrPipeline(n); });
+  });
+  $("stepReview").addEventListener("input", function(){ refreshRevNext(); });
+  $("btnExpSave").addEventListener("click", function(){
+    if(!exportEntries.length) return;
+    var fmt = selectedExportFmt();
+    downloadCSVText(buildCSVFormat(exportEntries, fmt), exportFilename(fmt));
+    $("doneMsg").textContent = "CSV saved in " + fmtLabel(fmt) + " format.";
+    showStep("done");
+  });
+  $("btnExpEmail").addEventListener("click", function(){ if(exportEntries.length) emailCSVFormat(); });
+  $("btnExpBack").addEventListener("click", function(){
+    if(exportMode === "bulk") showStep("bulk");
+    else showStep("review");
+  });
+  var toStart = function(){ resetWizard(); showStep("mode"); };
+  $("btnExpStart").addEventListener("click", toStart);
+  $("btnDoneStart").addEventListener("click", toStart);
+  $("btnBulkToExport").addEventListener("click", function(){
+    exportEntries = bulkQueue.filter(function(q){ return q.status === "done" && q.entry && q.reviewed; }).map(function(q){ return q.entry; });
+    if(!exportEntries.length) return;
+    exportMode = "bulk";
+    showStep("export");
+  });
+  $("bulkReviewList").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("[data-bact]") : null;
+    if(!b) return;
+    var q = null;
+    bulkQueue.forEach(function(x){ if(x.bulkId === b.getAttribute("data-qid")) q = x; });
+    if(!q || !q.entry) return;
+    if(b.getAttribute("data-bact") === "skip"){ q.reviewed = true; renderBulkReview(); return; }
+    lines = q.entry.lines.map(function(l){ return { desc: l.desc, qty: l.qty, cost: l.cost }; });
+    meta = { vendor: q.entry.meta.vendor, inv: q.entry.meta.inv, date: q.entry.meta.date };
+    photoDataUrl = null; photoIsReal = false;
+    reviewReturn = "bulk"; reviewBulkQ = q;
+    renderReview();
+    reviewSaved = true; savedEntryId = q.entry.id;
+    showStep("review");
+  });
+}
+
 /* ================= init ================= */
 setOcrBadge();
 updateEngineStatus();
 loadSettings();
 renderHistory();
 updateSessCount();
-showStep("capture");
+wireWizard();
+/* splash on first visits, "never show again" respected */
+var ecVisits = 0;
+try{ ecVisits = parseInt(localStorage.getItem("ec_visits") || "0", 10) || 0; }catch(e){}
+try{ localStorage.setItem("ec_visits", String(ecVisits + 1)); }catch(e){}
+var ecHideSplash = false;
+try{ ecHideSplash = localStorage.getItem("ec_splash_hide") === "1"; }catch(e){}
+showStep(ecHideSplash || ecVisits >= 3 ? "mode" : "splash");
 </script>
 </body>
 </html>
