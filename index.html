@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f6f4" id="metaTheme">
 <title>Expense Capture — snap an invoice, get the line items</title>
 
 
@@ -10,12 +11,12 @@
   :root{
     --bg:#f4f6f4; --surface:#ffffff; --surface-2:#eef1ee; --text:#1c2420; --muted:#6b7670;
     --line:#d8ddd6; --accent:#146b45; --accent-soft:#e0f1e8; --danger:#b64334; --blue:#32679a; --blue-soft:#e4eef7;
-    --radius:14px;
+    --warn-bg:#faf3e3; --warn-text:#8a5c0e;
+    --radius:14px; --shadow:0 1px 2px rgba(20,30,25,.06);
   }
-  @media (prefers-color-scheme: dark){
-    :root{ --bg:#121614; --surface:#1a201c; --surface-2:#232b26; --text:#e8ece9; --muted:#9aa5a0;
-      --line:#2c352e; --accent:#63c791; --accent-soft:#1c3829; --danger:#ef8c7d; --blue:#82b5e4; --blue-soft:#1d3040; }
-  }
+  :root[data-theme="dark"]{ --bg:#121614; --surface:#1a201c; --surface-2:#232b26; --text:#e8ece9; --muted:#9aa5a0;
+    --line:#2c352e; --accent:#63c791; --accent-soft:#1c3829; --danger:#ef8c7d; --blue:#82b5e4; --blue-soft:#1d3040;
+    --warn-bg:#3a2f18; --warn-text:#e8b96a; --shadow:none; }
   /* iOS Safari ignores programmatic .click() on display:none file inputs,
      so keep them rendered-but-invisible instead of using the hidden attr. */
   input[type=file].fileghost{position:fixed;top:8px;left:8px;width:4px;height:4px;opacity:.01;pointer-events:none;margin:0;padding:0;border:0;}
@@ -28,7 +29,7 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
   .pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
   .pill.good{background:var(--accent-soft);color:var(--accent)}
-  .pill.warn{background:#fff0d5;color:#b7791f}
+  .pill.warn{background:var(--warn-bg);color:var(--warn-text)}
   .pill.info{background:var(--blue-soft);color:var(--blue)}
   #viewfinder{position:relative;border:2px dashed var(--line);border-radius:var(--radius);min-height:220px;display:grid;place-items:center;background:var(--surface-2);overflow:hidden;margin-bottom:12px}
   #viewfinder .hint{color:var(--muted);font-size:13px;text-align:center;padding:20px}
@@ -82,6 +83,23 @@
   .bulk-meta strong{display:block;font-size:13px;word-break:break-all}
   .bulk-meta span{color:var(--muted);font-size:12px}
 
+/* ---- professional polish (v14) ---- */
+header h1{letter-spacing:-.01em}
+.card{box-shadow:var(--shadow)}
+.btn{min-height:44px;transition:transform .08s,background .15s,box-shadow .15s}
+.btn:active{transform:scale(.98)}
+.btn.primary{box-shadow:0 2px 8px rgba(20,107,69,.22)}
+:root[data-theme="dark"] .btn.primary{box-shadow:none}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wz-steps{display:flex;gap:6px;margin:2px 2px 14px}
+.wz-steps[hidden]{display:none}
+.wz-step{flex:1;text-align:center;font-size:10px;font-weight:700;color:var(--muted);padding-top:12px;position:relative;text-transform:uppercase;letter-spacing:.06em}
+.wz-step::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;border-radius:3px;background:var(--surface-2);border:1px solid var(--line)}
+.wz-step.done{color:var(--accent)}
+.wz-step.done::before{background:var(--accent);border-color:var(--accent)}
+.wz-step.now{color:var(--text)}
+.wz-step.now::before{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
 /* ---- guided wizard (v13) ---- */
 .splash-art{font-size:52px;text-align:center;margin:6px 0 2px}
 .splash-title{margin:0 0 6px;font-size:22px;text-align:center}
@@ -94,11 +112,11 @@
 .val-thumb{width:100%;max-height:220px;object-fit:contain;background:var(--surface-2);border:1px solid var(--line);border-radius:10px}
 .val-check{display:flex;gap:8px;align-items:baseline;font-size:14px;padding:6px 0;border-top:1px solid var(--line)}
 .val-check .st{font-weight:700;width:22px;text-align:center;flex:none}
-.val-check .ok{color:var(--accent)} .val-check .warn{color:#a86a12} .val-check .bad{color:var(--danger)}
+.val-check .ok{color:var(--accent)} .val-check .warn{color:var(--warn-text)} .val-check .bad{color:var(--danger)}
 .val-check small{color:var(--muted);margin-left:auto;text-align:right}
 .val-verdict{font-size:14px;font-weight:600;padding:10px 12px;border-radius:10px;margin:10px 0 0}
 .val-verdict.good{background:var(--accent-soft);color:var(--accent)}
-.val-verdict.warn{background:#faf3e3;color:#8a5c0e}
+.val-verdict.warn{background:var(--warn-bg);color:var(--warn-text)}
 .val-verdict.bad{background:#fbe9e6;color:var(--danger)}
 .rev-hint{font-size:13px;color:var(--danger);background:#fbe9e6;border-radius:10px;padding:8px 10px;margin:0 0 10px}
 .bulk-rev{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
@@ -113,9 +131,10 @@
 </head>
 <body>
 <header>
-  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v13 wizard</b></small></h1>
+  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v14 skins</b></small></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="pill info" id="ocrBadge">OCR</span>
+    <button class="btn" id="btnTheme" aria-label="Toggle light / dark skin" style="padding:8px 12px">🌙</button>
     <button class="btn" id="btnSettings" aria-label="Settings" style="padding:8px 12px">⚙</button>
   </div>
 </header>
@@ -141,6 +160,12 @@
     <div class="btnrow"><button class="btn primary big" id="btnModeSingle">🧾 Single invoice</button></div>
     <div class="btnrow" style="margin-top:10px"><button class="btn primary big" id="btnModeBulk">📚 Bulk scan — many invoices</button></div>
   </section>
+  <div class="wz-steps" id="wzSteps" hidden>
+    <div class="wz-step" data-s="capture">Capture</div>
+    <div class="wz-step" data-s="validate">Check</div>
+    <div class="wz-step" data-s="review">Review</div>
+    <div class="wz-step" data-s="export">Export</div>
+  </div>
   <section class="card" id="settingsCard" hidden>
     <h2 style="margin:0 0 4px;font-size:16px">Settings</h2>
     <h3 class="set-h">Photo storage</h3>
@@ -594,6 +619,14 @@ function showStep(which){
   $("wzValidate").hidden = which !== "validate";
   $("wzExport").hidden = which !== "export";
   $("wzDone").hidden = which !== "done";
+  var wz = $("wzSteps"), si = { capture:0, reading:0, validate:1, review:2, export:3 }[which];
+  if(wz){
+    wz.hidden = (si === undefined);
+    if(si !== undefined) wz.querySelectorAll(".wz-step").forEach(function(el, i){
+      el.classList.toggle("now", i === si);
+      el.classList.toggle("done", i < si);
+    });
+  }
   if(which === "mode" || which === "splash"){ try{ window.scrollTo(0, 0); }catch(e){} }
 }
 function showPhotoPreview(src){
@@ -1401,8 +1434,20 @@ function renderBulkReview(){
   cte.textContent = "Continue to export" + (ready ? " (" + ready + " ready" + (failedQs.length ? ", " + failedQs.length + " failed" : "") + ")" : "");
 }
 
+/* explicit light/dark skins */
+function applyTheme(t){
+  document.documentElement.setAttribute("data-theme", t);
+  try{ localStorage.setItem("ec_theme", t); }catch(e){}
+  var b = $("btnTheme"); if(b) b.textContent = t === "dark" ? "\u2600\uFE0F" : "\ud83c\udf19";
+  var mt = $("metaTheme"); if(mt) mt.setAttribute("content", t === "dark" ? "#121614" : "#f4f6f4");
+}
+
 /* ================= wizard wiring ================= */
 function wireWizard(){
+  $("btnTheme").addEventListener("click", function(){
+    var cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    applyTheme(cur === "dark" ? "light" : "dark");
+  });
   $("wzSplashGo").addEventListener("click", function(){
     if($("wzSplashHide").checked){ try{ localStorage.setItem("ec_splash_hide", "1"); }catch(e){} }
     showStep("mode");
@@ -1480,6 +1525,13 @@ loadSettings();
 renderHistory();
 updateSessCount();
 wireWizard();
+/* skin: saved choice wins, otherwise follow the OS */
+var ecTheme = null;
+try{ ecTheme = localStorage.getItem("ec_theme"); }catch(e){}
+if(ecTheme !== "light" && ecTheme !== "dark"){
+  ecTheme = (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+}
+applyTheme(ecTheme);
 /* splash on first visits, "never show again" respected */
 var ecVisits = 0;
 try{ ecVisits = parseInt(localStorage.getItem("ec_visits") || "0", 10) || 0; }catch(e){}
