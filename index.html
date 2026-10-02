@@ -85,7 +85,7 @@
 </head>
 <body>
 <header>
-  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v11 self-contained</b></small></h1>
+  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v12 self-contained</b></small></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="pill info" id="ocrBadge">OCR</span>
     <button class="btn" id="btnSettings" aria-label="Settings" style="padding:8px 12px">⚙</button>
@@ -308,9 +308,22 @@ function parseInvoiceLine(l){
     desc = desc.replace(/^\[?\(?#?\d{5,}\]?\)?\s+/, "");
   } else {
     qm = pre.match(/^\D*?(\d{1,4})\s+[A-Za-z"'(]/);
-    if(!qm) return null;
-    qty = parseInt(qm[1], 10);
-    desc = pre.replace(/^\D*?\d{1,4}\s+/, "").trim().replace(/[@\-–—:;,\s]+$/, "").trim();
+    if(qm){
+      qty = parseInt(qm[1], 10);
+      desc = pre.replace(/^\D*?\d{1,4}\s+/, "").trim().replace(/[@\-–—:;,\s]+$/, "").trim();
+    }
+  }
+  if(!qty){
+    /* Last resort: OCR sometimes drops a narrow qty column entirely
+       ("Product XYZ 150.00 2,250.00"). When ext/unit is an exact integer
+       it is the only qty that can satisfy the row math below. */
+    var q = ext / unit, qi = Math.round(q);
+    if(Math.abs(q - qi) > 0.001 || qi < 1 || qi > 10000) return null;
+    qty = qi;
+    desc = pre.replace(/\$\s*[\d,]+(?:\.\d{2})?|\b[\d,]+\.\d{2}\b/g, " ")
+      .replace(/^[\[\](){}#|\s]+/, "")
+      .replace(/[\[\](){}#|@\-–—:;,\s]+$/, "").trim()
+      .replace(/^\[?\(?#?\d{5,}\]?\)?\s+/, "");
   }
   if(qty <= 0 || qty > 10000) return null;
   if(Math.abs(qty * unit - ext) > Math.max(1.5, ext * 0.06)) return null;
@@ -493,6 +506,29 @@ function unsupportedFormatMsg(file){
   return "Couldn't read this photo" + (ext ? " (." + ext + " isn't supported in this browser)" : "") +
     " — please use a PNG or JPEG photo instead.";
 }
+/* Normalize image size for OCR: Tesseract reads best with the long edge
+   around 2400px. Small/thumbnail images get upscaled (huge quality win);
+   giant phone photos get downscaled (faster, same accuracy). */
+function normalizeForOcr(dataUrl, cb){
+  var img = new Image();
+  img.onload = function(){
+    try{
+      var w = img.naturalWidth, h = img.naturalHeight, longest = Math.max(w, h);
+      if(longest >= 2000 && longest <= 3000){ cb(dataUrl); return; }
+      var s = 2400 / longest;
+      var cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(w * s));
+      cv.height = Math.max(1, Math.round(h * s));
+      var cx = cv.getContext("2d");
+      cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
+      cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.drawImage(img, 0, 0, cv.width, cv.height);
+      cb(cv.toDataURL("image/jpeg", 0.92));
+    }catch(e){ cb(dataUrl); }
+  };
+  img.onerror = function(){ cb(dataUrl); };
+  img.src = dataUrl;
+}
 function onPhotoFile(file){
   if(!file) return;
   photoIsReal = true;
@@ -500,7 +536,7 @@ function onPhotoFile(file){
   canDecodeImage(file).then(function(ok){
     if(!ok){ captureNote(unsupportedFormatMsg(file)); return; }
     var rd = new FileReader();
-    rd.onload = function(){ photoDataUrl = rd.result; showPhotoPreview(rd.result); runOcrPipeline(rd.result); };
+    rd.onload = function(){ photoDataUrl = rd.result; showPhotoPreview(rd.result); normalizeForOcr(rd.result, runOcrPipeline); };
     rd.readAsDataURL(file);
   });
 }
@@ -704,7 +740,9 @@ function bulkProcessOne(q){
   q.status = "reading"; q.note = ""; renderBulkList();
   var t0 = Date.now();
   var dataUrl = null;
-  return readFileAsDataURL(q.file).then(function(d){ dataUrl = d; return bulkEnsureWorker(); })
+  return readFileAsDataURL(q.file)
+  .then(function(d){ return new Promise(function(res){ normalizeForOcr(d, res); }); })
+  .then(function(nd){ dataUrl = nd; return bulkEnsureWorker(); })
   .then(function(w){
     ocrStage = "bulk: recognizing " + q.name;
     return Promise.race([
