@@ -82,7 +82,7 @@
 </head>
 <body>
 <header>
-  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v9 self-contained</b></small></h1>
+  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v10 self-contained</b></small></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="pill info" id="ocrBadge">OCR</span>
     <button class="btn" id="btnSettings" aria-label="Settings" style="padding:8px 12px">⚙</button>
@@ -279,23 +279,32 @@ function parseInvoiceText(raw){
   });
   return { supplier: supplier, inv: inv, date: dateISO, lines: out };
 }
-/* One invoice row. Handles both table layout ("Banner (2x6m) 2  $45  $90")
-   and qty-first layout ("2 Hazy IPA 1/2 bbl @ $189.00 $378.00"). */
+/* One invoice row. Handles table layout ("Banner (2x6m) 2  $45  $90"),
+   qty-first layout ("2 Hazy IPA 1/2 bbl @ $189.00 $378.00"), and
+   $-less tables ("Product XYZ 15 150.00 2,250.00"). */
 function parseInvoiceLine(l){
   var monies = l.match(/\$\s*[\d,]+(?:\.\d{2})?|\b[\d,]+\.\d{2}\b/g) || [];
   if(monies.length < 2) return null;
   var vals = monies.map(function(x){ return parseFloat(x.replace(/[^0-9.]/g, "")); });
   var ext = vals[vals.length - 1], unit = vals[vals.length - 2];
   if(!(unit > 0) || !(ext > 0)) return null;
-  var mi = l.search(/\$/);
-  var pre = mi >= 0 ? l.slice(0, mi).trim() : l;
+  /* Strip the trailing unit-price and extended-price tokens first, so the
+     qty search can't mistake the total's cents for a quantity
+     ("2,250.00" used to read as qty 0). */
+  var pre = l, k, mm;
+  for(k = 0; k < 2; k++){
+    mm = pre.match(/\$\s*[\d,]+(?:\.\d{2})?\s*$|\b[\d,]+\.\d{2}\s*$/);
+    if(mm) pre = pre.slice(0, mm.index).trim();
+  }
   var qty = 0, desc = "", qm;
   qm = pre.match(/(\d{1,4})\s*$/);
   if(qm){
     qty = parseInt(qm[1], 10);
     desc = pre.slice(0, qm.index).trim().replace(/[@\-–—:;,\s]+$/, "").trim();
+    /* drop a leading item/SKU number: "23423423 Product XYZ" -> "Product XYZ" */
+    desc = desc.replace(/^\[?\(?#?\d{5,}\]?\)?\s+/, "");
   } else {
-    qm = l.match(/^\D*?(\d{1,4})\s+[A-Za-z"'(]/);
+    qm = pre.match(/^\D*?(\d{1,4})\s+[A-Za-z"'(]/);
     if(!qm) return null;
     qty = parseInt(qm[1], 10);
     desc = pre.replace(/^\D*?\d{1,4}\s+/, "").trim().replace(/[@\-–—:;,\s]+$/, "").trim();
