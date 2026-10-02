@@ -69,6 +69,11 @@
   .fld{display:grid;gap:4px;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
   .fld input{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px 10px;font-size:14px;color:var(--text);font-family:inherit;width:100%}
   #btnSettings{font-size:16px}
+  .map-grid{display:grid;grid-template-columns:110px 1fr;gap:8px 10px;align-items:center;margin:12px 0}
+  .map-grid label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .map-grid select{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px 10px;font-size:14px;color:var(--text);font-family:inherit;width:100%}
+  .map-grid select.req-missing{border-color:var(--danger)}
+  .sample{font-size:11px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0}
   .bulk-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px}
   .bulk-item:last-child{border-bottom:0}
   .bulk-meta strong{display:block;font-size:13px;word-break:break-all}
@@ -139,6 +144,22 @@
     </div>
   </section>
 
+  <!-- csv import wizard -->
+  <section class="card" id="stepImport" hidden>
+    <h2 style="margin:0 0 4px;font-size:16px">Import CSV</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 6px">Match each of your columns to the right field — like the Meta upload wizard.</p>
+    <div class="map-grid" id="impMapRows"></div>
+    <h3 class="set-h">Preview (first 8 rows)</h3>
+    <div class="table-scroll"><table class="line-table"><thead><tr><th>Description</th><th>Qty</th><th>Unit $</th><th>Vendor</th><th>Invoice #</th><th>Date</th></tr></thead><tbody id="impPreview"></tbody></table></div>
+    <p id="impMsg" style="font-size:13px;color:var(--muted)"></p>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn primary big" id="btnImpDo" disabled>Import</button>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn" id="btnImpBack">Back</button>
+    </div>
+  </section>
+
   <!-- review -->
   <section class="card" id="stepReview" hidden>
     <div class="meta-grid">
@@ -166,7 +187,7 @@
   <!-- history -->
   <h2 class="sec">Saved invoices <span id="sessCount" style="font-weight:400;color:var(--muted);font-size:12px"></span></h2>
   <section class="card">
-    <div class="btnrow" style="margin-bottom:10px"><button class="btn" id="btnExportAll">Export all as CSV</button></div>
+    <div class="btnrow" style="margin-bottom:10px"><button class="btn" id="btnExportAll">Export all as CSV</button><button class="btn" id="btnImportCsv">Import CSV</button><input type="file" id="fileCsvImport" accept=".csv,text/csv" hidden></div>
     <div id="histList"><p class="empty">Nothing saved yet — scanned invoices land here for your tax records.</p></div>
   </section>
 
@@ -433,6 +454,7 @@ function showStep(which){
   $("stepReading").hidden = which !== "reading";
   $("stepReview").hidden = which !== "review";
   $("stepBulk").hidden = which !== "bulk";
+  $("stepImport").hidden = which !== "import";
 }
 function showPhotoPreview(src){
   $("viewfinder").innerHTML = '<img src="' + src + '" alt="Invoice photo">';
@@ -767,6 +789,124 @@ $("btnBulkCSV").addEventListener("click", function(){
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 });
+
+/* ================= CSV import wizard (Meta-style column mapping) ================= */
+var impHeaders = [], impRows = [];
+var impMap = { vendor:-1, inv:-1, date:-1, desc:-1, qty:-1, cost:-1 };
+var FIELD_DEFS = [
+  { key:"vendor", label:"Vendor",      names:["vendor","supplier","merchant","from","seller"], req:false },
+  { key:"inv",    label:"Invoice #",   names:["invoice","inv","invoiceno","invoicenumber","ref","ponumber"], req:false },
+  { key:"date",   label:"Date",        names:["date","invoicedate","day"], req:false },
+  { key:"desc",   label:"Description", names:["description","desc","item","product","details","name","memo"], req:true },
+  { key:"qty",    label:"Qty",         names:["qty","quantity","count"], req:true },
+  { key:"cost",   label:"Unit cost",   names:["unitcost","unitprice","price","unit","cost","rate","amount"], req:true }
+];
+function parseCSV(text){
+  text = String(text).replace(/^﻿/, "");
+  var rows = [], row = [], cur = "", inQ = false, i, c;
+  for(i = 0; i < text.length; i++){
+    c = text[i];
+    if(inQ){
+      if(c === '"'){ if(text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else if(c === '"'){ inQ = true; }
+    else if(c === ","){ row.push(cur); cur = ""; }
+    else if(c === "\n"){ row.push(cur); rows.push(row); row = []; cur = ""; }
+    else if(c !== "\r"){ cur += c; }
+  }
+  if(cur !== "" || row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(function(r){ return r.length > 1 || String(r[0]).trim() !== ""; });
+}
+function autoMapField(names, headers){
+  var norm = headers.map(function(h){ return String(h).toLowerCase().replace(/[^a-z0-9]/g, ""); });
+  var n, h;
+  for(n = 0; n < names.length; n++){
+    for(h = 0; h < norm.length; h++){
+      if(norm[h] && (norm[h] === names[n] || norm[h].indexOf(names[n]) === 0)) return h;
+    }
+  }
+  return -1;
+}
+function impVal(r, ci){ return ci >= 0 && r[ci] != null ? String(r[ci]).trim() : ""; }
+function impNum(s){ var n = parseFloat(String(s).replace(/[$,\s]/g, "")); return isNaN(n) ? NaN : n; }
+function renderImpMapping(){
+  var wrap = $("impMapRows");
+  wrap.innerHTML = FIELD_DEFS.map(function(f){
+    var opts = '<option value="-1">— ignore —</option>' + impHeaders.map(function(h, i){
+      var sample = impRows.length && impRows[0][i] != null ? String(impRows[0][i]).slice(0, 24) : "";
+      return '<option value="' + i + '"' + (impMap[f.key] === i ? " selected" : "") + '>' +
+        esc(h || ("Column " + (i+1))) + (sample ? ' <span class="sample">e.g. ' + esc(sample) + "</span>" : "") + "</option>";
+    }).join("");
+    return "<label>" + esc(f.label) + (f.req ? " *" : "") + "</label>" +
+      '<select data-impf="' + f.key + '" class="' + (f.req && impMap[f.key] < 0 ? "req-missing" : "") + '">' + opts + "</select>";
+  }).join("");
+  renderImpPreview();
+  var ok = FIELD_DEFS.every(function(f){ return !f.req || impMap[f.key] >= 0; });
+  $("btnImpDo").disabled = !ok;
+  $("impMsg").textContent = ok
+    ? impRows.length + " data rows ready."
+    : "Description, Qty and Unit cost must each be mapped to a column.";
+}
+function renderImpPreview(){
+  var tb = $("impPreview");
+  tb.innerHTML = impRows.slice(0, 8).map(function(r){
+    return "<tr><td>" + esc(impVal(r, impMap.desc)).slice(0, 40) + "</td><td>" + esc(impVal(r, impMap.qty)) +
+      "</td><td>" + esc(impVal(r, impMap.cost)) + "</td><td>" + esc(impVal(r, impMap.vendor)).slice(0, 24) +
+      "</td><td>" + esc(impVal(r, impMap.inv)).slice(0, 16) + "</td><td>" + esc(impVal(r, impMap.date)).slice(0, 12) + "</td></tr>";
+  }).join("");
+}
+$("impMapRows").addEventListener("change", function(e){
+  var s = e.target.closest ? e.target.closest("[data-impf]") : null;
+  if(!s) return;
+  impMap[s.getAttribute("data-impf")] = parseInt(s.value, 10);
+  renderImpMapping();
+});
+function doCsvImport(){
+  var groups = {}, order = [], skipped = 0;
+  impRows.forEach(function(r){
+    var desc = impVal(r, impMap.desc);
+    var qty = impNum(impVal(r, impMap.qty));
+    var cost = impNum(impVal(r, impMap.cost));
+    if(!desc || !(qty > 0) || isNaN(cost) || cost < 0){ skipped++; return; }
+    var invKey = impVal(r, impMap.inv) || "__single__";
+    if(!groups[invKey]){
+      groups[invKey] = { id: "csv-" + Date.now().toString(36) + "-" + order.length,
+        meta: { vendor: impVal(r, impMap.vendor), inv: impMap.inv >= 0 ? impVal(r, impMap.inv) : "", date: impVal(r, impMap.date) || todayISO() },
+        lines: [] };
+      order.push(invKey);
+    }
+    groups[invKey].lines.push({ desc: desc, qty: qty, cost: Math.round(cost * 100) / 100 });
+  });
+  var entries = order.map(function(k){ return groups[k]; });
+  if(!entries.length){ $("impMsg").textContent = "Nothing importable — check the mapping. " + skipped + " rows skipped."; return; }
+  var h = loadHistory();
+  entries.forEach(function(e){ h.unshift(e); });
+  saveHistory(h); renderHistory();
+  sessionCount += entries.length; updateSessCount();
+  $("impMsg").textContent = "Imported " + entries.length + " invoice(s), " +
+    entries.reduce(function(t, e){ return t + e.lines.length; }, 0) + " lines" +
+    (skipped ? " (" + skipped + " rows skipped)." : ".");
+  $("btnImpDo").disabled = true;
+}
+$("btnImportCsv").addEventListener("click", function(){ $("fileCsvImport").click(); });
+$("fileCsvImport").addEventListener("change", function(){
+  var f = this.files && this.files[0];
+  this.value = "";
+  if(!f) return;
+  var rd = new FileReader();
+  rd.onload = function(){
+    var rows = parseCSV(rd.result);
+    if(rows.length < 2){ captureNote("That CSV doesn't have enough rows — need a header row plus data."); return; }
+    impHeaders = rows[0]; impRows = rows.slice(1);
+    FIELD_DEFS.forEach(function(fd){ impMap[fd.key] = autoMapField(fd.names, impHeaders); });
+    showStep("import");
+    renderImpMapping();
+    window.scrollTo(0, 0);
+  };
+  rd.readAsText(f);
+});
+$("btnImpDo").addEventListener("click", doCsvImport);
+$("btnImpBack").addEventListener("click", function(){ showStep("capture"); });
 
 /* ================= settings: photo storage (Google Drive vs local) ================= */
 var DRIVE_CLIENT_ID = ""; /* TODO: merchant's Google Cloud OAuth client ID */
