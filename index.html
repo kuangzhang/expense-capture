@@ -69,6 +69,10 @@
   .fld{display:grid;gap:4px;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
   .fld input{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px 10px;font-size:14px;color:var(--text);font-family:inherit;width:100%}
   #btnSettings{font-size:16px}
+  .bulk-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px}
+  .bulk-item:last-child{border-bottom:0}
+  .bulk-meta strong{display:block;font-size:13px;word-break:break-all}
+  .bulk-meta span{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -107,12 +111,32 @@
       <input type="file" id="fileUpload" accept="image/*" hidden>
       <button class="btn" id="btnSample">Try sample</button>
     </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn primary big" id="btnBulk">📚 Bulk scan — many invoices</button>
+      <input type="file" id="fileBulk" accept="image/*" multiple hidden>
+    </div>
   </section>
 
   <!-- reading -->
   <section class="card" id="stepReading" hidden>
     <div class="progress"><i id="progFill"></i></div>
     <p id="extractLog"></p>
+  </section>
+
+  <!-- bulk -->
+  <section class="card" id="stepBulk" hidden>
+    <h2 style="margin:0 0 8px;font-size:16px">Bulk scan <span id="bulkCount" style="font-weight:400;color:var(--muted);font-size:12px"></span></h2>
+    <div class="progress"><i id="bulkProgFill"></i></div>
+    <p id="bulkLog" style="font-size:13px;color:var(--muted);min-height:20px">Pick invoice photos to queue them up.</p>
+    <div id="bulkList"></div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn primary big" id="btnBulkStart" disabled>Start bulk scan</button>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn" id="btnBulkCSV" disabled>Download combined CSV</button>
+      <button class="btn" id="btnBulkCancel" disabled>Cancel</button>
+      <button class="btn" id="btnBulkClose">Back</button>
+    </div>
   </section>
 
   <!-- review -->
@@ -237,7 +261,7 @@ function parseInvoiceText(raw){
 /* One invoice row. Handles both table layout ("Banner (2x6m) 2  $45  $90")
    and qty-first layout ("2 Hazy IPA 1/2 bbl @ $189.00 $378.00"). */
 function parseInvoiceLine(l){
-  var monies = l.match(/\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\b\d{1,3}(?:,\d{3})*\.\d{2}\b/g) || [];
+  var monies = l.match(/\$\s*[\d,]+(?:\.\d{2})?|\b[\d,]+\.\d{2}\b/g) || [];
   if(monies.length < 2) return null;
   var vals = monies.map(function(x){ return parseFloat(x.replace(/[^0-9.]/g, "")); });
   var ext = vals[vals.length - 1], unit = vals[vals.length - 2];
@@ -300,23 +324,29 @@ function errText(err){
   catch(e){ return String(err).slice(0, 300); }
 }
 var ocrStage = "", ocrWorkerErr = "";
+function makeOcrOpts(onProgress){
+  var opts = ocrEngineOptions();
+  opts.errorHandler = function(e){ ocrWorkerErr = errText(e); };
+  opts.logger = function(m){
+    if(m.status === "recognizing text"){
+      var p = Math.round(m.progress * 100);
+      if(onProgress) onProgress(p);
+    } else if(/loading/i.test(m.status)){
+      if(onProgress) onProgress(-1);
+    }
+  };
+  return opts;
+}
 function recognizeInvoice(imgSrc){
   return new Promise(function(resolve, reject){
     var done = false;
     var to = setTimeout(function(){ if(!done){ done = true; reject(new Error("ocr timeout after 150s")); } }, 150000);
-    var opts = ocrEngineOptions();
-    opts.errorHandler = function(e){ ocrWorkerErr = errText(e); };
     ocrStage = "creating worker";
-    opts.logger = function(m){
-      if(m.status === "recognizing text"){
-        var p = Math.round(m.progress * 100);
-        $("progFill").style.width = p + "%";
-        $("extractLog").textContent = "Reading invoice… " + p + "% (on-device, nothing uploaded)";
-      } else if(/loading/i.test(m.status)){
-        $("extractLog").textContent = "Loading OCR engine… (first scan only)";
-      }
-    };
-    Tesseract.createWorker("eng", 1, opts).then(function(worker){
+    Tesseract.createWorker("eng", 1, makeOcrOpts(function(p){
+      if(p < 0){ $("extractLog").textContent = "Loading OCR engine… (first scan only)"; return; }
+      $("progFill").style.width = p + "%";
+      $("extractLog").textContent = "Reading invoice… " + p + "% (on-device, nothing uploaded)";
+    })).then(function(worker){
       ocrStage = "worker created, recognizing";
       return worker.recognize(imgSrc).then(function(r){
         ocrStage = "recognized, terminating";
@@ -402,6 +432,7 @@ function showStep(which){
   $("stepCapture").hidden = which !== "capture";
   $("stepReading").hidden = which !== "reading";
   $("stepReview").hidden = which !== "review";
+  $("stepBulk").hidden = which !== "bulk";
 }
 function showPhotoPreview(src){
   $("viewfinder").innerHTML = '<img src="' + src + '" alt="Invoice photo">';
@@ -571,6 +602,137 @@ $("histList").addEventListener("click", function(e){
     saveHistory(h.filter(function(x){ return x.id !== d.getAttribute("data-hdel"); }));
     renderHistory();
   }
+});
+
+/* ================= bulk scan: many invoices, one queue ================= */
+var bulkQueue = [];   /* {file, name, status: queued|reading|done|failed, note, entry} */
+var bulkRunning = false, bulkCancel = false, bulkWorker = null;
+window.__bulkResults = null; /* test hook: filled when a bulk run finishes */
+
+function renderBulkList(){
+  var el = $("bulkList");
+  el.innerHTML = bulkQueue.map(function(q){
+    var pill = q.status === "done" ? '<span class="pill good">✓ ' + q.entry.lines.length + ' lines</span>'
+      : q.status === "failed" ? '<span class="pill warn">failed</span>'
+      : q.status === "reading" ? '<span class="pill info">reading…</span>'
+      : '<span class="pill info">queued</span>';
+    return '<div class="bulk-item"><div class="bulk-meta"><strong>' + esc(q.name) + '</strong>' +
+      '<span>' + esc(q.note || "") + '</span></div><div>' + pill + '</div></div>';
+  }).join("");
+  var done = bulkQueue.filter(function(q){ return q.status === "done" || q.status === "failed"; }).length;
+  $("bulkCount").textContent = bulkQueue.length ? "· " + done + " of " + bulkQueue.length + " processed" : "";
+  $("bulkProgFill").style.width = (bulkQueue.length ? Math.round(done / bulkQueue.length * 100) : 0) + "%";
+  $("btnBulkStart").disabled = bulkRunning || !bulkQueue.some(function(q){ return q.status === "queued"; });
+  $("btnBulkCancel").disabled = !bulkRunning;
+  $("btnBulkCSV").disabled = !bulkQueue.some(function(q){ return q.status === "done"; });
+}
+function readFileAsDataURL(file){
+  return new Promise(function(res, rej){
+    var rd = new FileReader();
+    rd.onload = function(){ res(rd.result); };
+    rd.onerror = function(){ rej(new Error("could not read file")); };
+    rd.readAsDataURL(file);
+  });
+}
+function bulkEnsureWorker(){
+  if(bulkWorker) return Promise.resolve(bulkWorker);
+  ocrStage = "bulk: creating worker";
+  return Tesseract.createWorker("eng", 1, makeOcrOpts(function(p){
+    if(p >= 0) $("bulkLog").textContent = "Reading… " + p + "% (on-device, nothing uploaded)";
+  })).then(function(w){ bulkWorker = w; return w; });
+}
+function bulkProcessOne(q){
+  q.status = "reading"; q.note = ""; renderBulkList();
+  var t0 = Date.now();
+  var dataUrl = null;
+  return readFileAsDataURL(q.file).then(function(d){ dataUrl = d; return bulkEnsureWorker(); })
+  .then(function(w){
+    ocrStage = "bulk: recognizing " + q.name;
+    return Promise.race([
+      w.recognize(dataUrl).then(function(r){ return r.data.text; }),
+      new Promise(function(_, rej){ setTimeout(function(){ rej(new Error("bulk ocr timeout after 90s")); }, 90000); })
+    ]);
+  }).then(function(text){
+    var parsed = parseInvoiceText(text);
+    var secs = ((Date.now() - t0) / 1000).toFixed(1);
+    if(!parsed.lines.length){ q.status = "failed"; q.note = "no line items found (" + secs + "s)"; }
+    else {
+      var entry = { id: "bulk-" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36),
+        meta: { vendor: parsed.supplier || "", inv: parsed.inv || "", date: parsed.date || todayISO() },
+        lines: parsed.lines.map(function(l){ return { desc: l.desc, qty: l.qty, cost: l.cost }; }) };
+      var h = loadHistory(); h.unshift(entry); saveHistory(h);
+      q.status = "done"; q.entry = entry;
+      q.note = parsed.lines.length + " lines · " + secs + "s";
+    }
+  }).catch(function(err){
+    if(bulkWorker){ try { bulkWorker.terminate(); } catch(e){} bulkWorker = null; }
+    q.status = "failed"; q.note = errText(err);
+  }).then(function(){ renderBulkList(); renderHistory(); });
+}
+function bulkRun(){
+  if(bulkRunning) return;
+  var pending = bulkQueue.filter(function(q){ return q.status === "queued"; });
+  if(!pending.length) return;
+  bulkRunning = true; bulkCancel = false;
+  $("bulkLog").textContent = "Starting bulk scan — " + pending.length + " invoices, one at a time.";
+  renderBulkList();
+  var chain = Promise.resolve();
+  pending.forEach(function(q){
+    chain = chain.then(function(){
+      if(bulkCancel) return null;
+      return bulkProcessOne(q);
+    });
+  });
+  chain.then(function(){
+    bulkRunning = false;
+    if(bulkWorker){ try { bulkWorker.terminate(); } catch(e){} bulkWorker = null; }
+    var done = bulkQueue.filter(function(q){ return q.status === "done"; }).length;
+    var failed = bulkQueue.filter(function(q){ return q.status === "failed"; }).length;
+    $("bulkLog").textContent = bulkCancel
+      ? "Cancelled — " + done + " done, " + failed + " failed."
+      : "Bulk scan complete — " + done + " read, " + failed + " failed. Each one is saved to history below.";
+    window.__bulkResults = bulkQueue.map(function(q){
+      return { name: q.name, status: q.status, note: q.note, lines: q.entry ? q.entry.lines : [] };
+    });
+    renderBulkList();
+  });
+}
+$("btnBulk").addEventListener("click", function(){ $("fileBulk").click(); });
+$("fileBulk").addEventListener("change", function(){
+  var files = Array.prototype.slice.call(this.files || []);
+  this.value = "";
+  if(!files.length) return;
+  files.forEach(function(f){
+    bulkQueue.push({ file: f, name: f.name, status: "queued", note: Math.round(f.size / 1024) + " KB", entry: null });
+  });
+  clearCaptureNote();
+  showStep("bulk");
+  $("bulkLog").textContent = bulkQueue.length + " invoices queued. Start the bulk scan when ready.";
+  window.__bulkResults = null;
+  renderBulkList();
+  window.scrollTo(0, 0);
+});
+$("btnBulkStart").addEventListener("click", function(){
+  ensureOcr(function(ok){
+    if(!ok){ $("bulkLog").textContent = "The invoice reader didn't load. Check your connection and try again."; return; }
+    OCR.mode = "real"; setOcrBadge();
+    bulkRun();
+  });
+});
+$("btnBulkCancel").addEventListener("click", function(){
+  bulkCancel = true;
+  $("bulkLog").textContent = "Cancelling after the current invoice…";
+});
+$("btnBulkClose").addEventListener("click", function(){ showStep("capture"); });
+$("btnBulkCSV").addEventListener("click", function(){
+  var entries = bulkQueue.filter(function(q){ return q.status === "done" && q.entry; }).map(function(q){ return q.entry; });
+  if(!entries.length) return;
+  var blob = new Blob([buildCSVAll(entries)], { type: "text/csv;charset=utf-8" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "invoices-bulk-" + todayISO() + ".csv";
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 });
 
 /* ================= settings: photo storage (Google Drive vs local) ================= */
