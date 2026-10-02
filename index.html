@@ -16,6 +16,9 @@
     :root{ --bg:#121614; --surface:#1a201c; --surface-2:#232b26; --text:#e8ece9; --muted:#9aa5a0;
       --line:#2c352e; --accent:#63c791; --accent-soft:#1c3829; --danger:#ef8c7d; --blue:#82b5e4; --blue-soft:#1d3040; }
   }
+  /* iOS Safari ignores programmatic .click() on display:none file inputs,
+     so keep them rendered-but-invisible instead of using the hidden attr. */
+  input[type=file].fileghost{position:fixed;top:8px;left:8px;width:4px;height:4px;opacity:.01;pointer-events:none;margin:0;padding:0;border:0;}
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.45;padding-bottom:env(safe-area-inset-bottom)}
   header{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -82,7 +85,7 @@
 </head>
 <body>
 <header>
-  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v10 self-contained</b></small></h1>
+  <h1>Expense Capture<small>snap an invoice · get the line items · <b>v11 self-contained</b></small></h1>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="pill info" id="ocrBadge">OCR</span>
     <button class="btn" id="btnSettings" aria-label="Settings" style="padding:8px 12px">⚙</button>
@@ -105,20 +108,20 @@
   <!-- capture -->
   <section class="card" id="stepCapture">
     <div id="viewfinder"><div class="hint">Align the invoice inside the frame,<br>then capture.</div></div>
-    <p id="engineStatus" class="engine-status">Reader (v4): checking…</p>
+    <p id="engineStatus" class="engine-status">Reader: checking…</p>
     <p id="captureMsg" class="capture-msg" hidden></p>
     <div class="btnrow">
       <button class="btn primary big" id="btnSnap">📷 Snap invoice</button>
-      <input type="file" id="fileSnap" accept="image/*" capture="environment" hidden>
+      <input type="file" id="fileSnap" accept="image/*" capture="environment" class="fileghost">
     </div>
     <div class="btnrow" style="margin-top:10px">
       <button class="btn" id="btnUpload">Upload photo</button>
-      <input type="file" id="fileUpload" accept="image/*" hidden>
+      <input type="file" id="fileUpload" accept="image/*" class="fileghost">
       <button class="btn" id="btnSample">Try sample</button>
     </div>
     <div class="btnrow" style="margin-top:10px">
       <button class="btn primary big" id="btnBulk">📚 Bulk scan — many invoices</button>
-      <input type="file" id="fileBulk" accept="image/*" multiple hidden>
+      <input type="file" id="fileBulk" accept="image/*" multiple class="fileghost">
     </div>
   </section>
 
@@ -187,7 +190,7 @@
   <!-- history -->
   <h2 class="sec">Saved invoices <span id="sessCount" style="font-weight:400;color:var(--muted);font-size:12px"></span></h2>
   <section class="card">
-    <div class="btnrow" style="margin-bottom:10px"><button class="btn" id="btnExportAll">Export all as CSV</button><button class="btn" id="btnImportCsv">Import CSV</button><input type="file" id="fileCsvImport" accept=".csv,text/csv" hidden></div>
+    <div class="btnrow" style="margin-bottom:10px"><button class="btn" id="btnExportAll">Export all as CSV</button><button class="btn" id="btnImportCsv">Import CSV</button><input type="file" id="fileCsvImport" accept=".csv,text/csv" class="fileghost"></div>
     <div id="histList"><p class="empty">Nothing saved yet — scanned invoices land here for your tax records.</p></div>
   </section>
 
